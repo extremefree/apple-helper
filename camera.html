@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<link rel="icon" type="image/png" sizes="256x256" href="favicon.png">
+<title>苹农智眼-服务于单棵苹果果树的智慧系统原型</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, "Segoe UI", sans-serif;
+    background: #f0f6f2;
+    color: #1e4a2a;
+    min-height: 100vh;
+    padding: 0;
+    overflow: hidden;
+  }
+  .app-shell {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 16px;
+  }
+  .page-header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    flex-shrink: 0;
+    padding-bottom: 8px;
+    background: linear-gradient(180deg, #f0f6f2 0%, #f0f6f2 80%, rgba(240,246,242,0) 100%);
+  }
+  .page-header .canvas-title {
+    padding: 18px 22px;
+    border-radius: 22px;
+  }
+  .workspace {
+    display: flex;
+    gap: 16px;
+    flex: 1;
+    min-height: 0;
+    padding-bottom: 4px;
+  }
+  .sidebar {
+    width: 260px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+    padding-top: 4px;
+    justify-content: flex-start;
+  }
+  .main-panel {
+    flex: 1.08;
+    min-width: 0;
+    overflow-y: auto;
+    padding-top: 4px;
+    padding-bottom: 8px;
+  }
+  .main-scroll {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 100%;
+  }
+  .canvas {
+    background: #ffffffdd;
+    backdrop-filter: blur(6px);
+    border-radius: 22px;
+    padding: 20px;
+    box-shadow: 0 8px 30px rgba(0,40,20,.06);
+    border: 1px solid rgba(255,255,255,.6);
+  }
+  .canvas-title {
+    background: rgba(255,255,255,0.75);
+    backdrop-filter: blur(12px);
+  }
+  .canvas-title h1 { font-weight: 600; color: #1e4a2a; font-size: 22px; }
+  .title-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 12px;
+  }
+  .title-bar h1 i { color: #2e7d32; margin-right: 8px; }
+  .topbar-status {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .clock {
+    font-size: 14px; color: #3a5a4a; font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+  .backend-status {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #e8f0ea; padding: 4px 14px; border-radius: 30px;
+    font-size: 13px; color: #1e4a2a; border: 1px solid #b8dfc0;
+  }
+  .backend-status .dot { width: 8px; height: 8px; border-radius: 50%; background: #c62828; }
+  .backend-status .dot.ok { background: #2e7d32; }
+  .mode-btn {
+    background: #e8f0ea; border: 1px solid #b8dfc0; padding: 6px 20px;
+    border-radius: 40px; color: #1e4a2a; font-weight: 500; cursor: pointer;
+    font-size: 14px; transition: .15s;
+  }
+  .mode-btn:hover { background: #c8e0d0; }
+  .alert-bell {
+    display: none; align-items: center; gap: 6px;
+    background: #ffe0e0; padding: 4px 14px; border-radius: 30px;
+    font-size: 13px; color: #b71c1c; border: 1px solid #ffcdd2;
+  }
+  .alert-bell.show { display: inline-flex; animation: bell-pulse 2s infinite; }
+  @keyframes bell-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,138,128,.4); }
+    50% { box-shadow: 0 0 10px 3px rgba(255,138,128,.2); }
+  }
+  .canvas-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+    align-self: stretch;
+  }
+  .canvas-stage {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+  }
+  .stage-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 12;
+  }
+  .overlay-top-right,
+  .overlay-bottom-right {
+    position: absolute;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    z-index: 12;
+    pointer-events: none;
+  }
+  .overlay-top-right {
+    top: 12px;
+    right: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .overlay-bottom-right {
+    right: 12px;
+    bottom: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .overlay-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #ffffff;
+    background: rgba(15, 37, 24, 0.72);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.16);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.16);
+    pointer-events: auto;
+    cursor: pointer;
+  }
+  .overlay-chip .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #7dd97c;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.2);
+  }
+  .overlay-chip.danger {
+    background: rgba(176, 41, 41, 0.82);
+  }
+  .overlay-chip.warning {
+    background: rgba(225, 140, 22, 0.8);
+  }
+  .overlay-chip button {
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    border: none;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .overlay-bottom-right .overlay-chip {
+    padding: 8px 14px;
+  }
+  .canvas-stage .stage {
+    position: relative;
+    width: 100%;
+    flex: 1;
+    min-height: 420px;
+    background: #1a2a1a;
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1); /* 镜像，更符合习惯 */
+  }
+  .canvas-chart-panel {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+    margin-bottom: 2px;
+  }
+  .chart-nav {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    color: #2a5a3a; font-size: 15px; font-weight: 600;
+  }
+  .chart-arrow {
+    background: #e8f0ea; border: 1px solid #b8dfc0; color: #1e4a2a;
+    width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+    font-size: 13px; display: flex; align-items: center; justify-content: center;
+  }
+  .chart-arrow:hover { background: #2e7d32; color: #fff; border-color: #2e7d32; }
+  .chart-title { flex: 1; text-align: center; letter-spacing: .02em; }
+  .chart-viewport {
+    position: relative;
+    height: 170px;
+    overflow: hidden;
+    border-radius: 16px;
+    perspective: 1200px;
+    background: linear-gradient(180deg, rgba(245,250,247,0.95), rgba(232,240,234,0.9));
+    border: 1px solid #e0ece4;
+  }
+  .chart-stack {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+  .chart-card {
+    position: absolute;
+    inset: 0;
+    padding: 10px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-radius: 16px;
+    background: transparent;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(34px) rotateX(60deg) scale(0.96);
+    transform-origin: center bottom;
+    transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.7s ease;
+    backface-visibility: hidden;
+  }
+  .chart-card.active {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0) rotateX(0) scale(1);
+    z-index: 2;
+  }
+  .chart-card.exit-up {
+    transform: translateY(-100%) rotateX(-70deg) scale(0.96);
+    opacity: 0;
+    z-index: 1;
+  }
+  .chart-card.exit-down {
+    transform: translateY(100%) rotateX(70deg) scale(0.96);
+    opacity: 0;
+    z-index: 1;
+  }
+  .chart-card h3 {
+    font-size: 13px;
+    font-weight: 600;
+    color: #2a5a3a;
+  }
+  .chart-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+  }
+  .chart-indicators { display: flex; justify-content: center; gap: 8px; }
+  .chart-indicators .ci {
+    width: 8px; height: 8px; border-radius: 10px; background: #d0dcd0;
+    cursor: pointer; transition: .3s;
+  }
+  .chart-indicators .ci.active { background: #2e7d32; width: 20px; }
+  .canvas-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    min-height: 0;
+    align-content: start;
+  }
+  .canvas-control {
+    position: absolute;
+    left: 14px;
+    bottom: 72px;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    justify-content: flex-end;
+    background: rgba(255,255,255,0.78);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.6);
+    border-radius: 18px;
+    box-shadow: 0 10px 24px rgba(0,40,20,0.16);
+  }
+  .pitch-control {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 4px; margin-left: auto;
+  }
+  .pitch-label { font-size: 12px; color: #5a7a6a; font-weight: 500; }
+  .pitch-value { font-size: 13px; color: #1e4a2a; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pitch-range {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 10px;
+    height: 120px;
+    accent-color: #2e7d32;
+    cursor: pointer;
+  }
+  .camctrl-row {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    justify-content: flex-end;
+  }
+  .canvas-ai {
+    display: flex;
+    gap: 24px;
+  }
+  .ai-left { flex: 1.2; display: flex; flex-direction: column; min-width: 0; }
+  .ai-right { flex: 1; display: flex; flex-direction: column; gap: 14px; }
+  .ai-title { color: #1e4a2a; font-size: 16px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .chat-box {
+    background: #f5faf7; border-radius: 16px; padding: 14px;
+    flex: 1; min-height: 100px; max-height: 180px; overflow-y: auto;
+    border: 1px solid #e0ece4; display: flex; flex-direction: column; gap: 8px;
+    margin-bottom: 10px;
+  }
+  .chat-message { padding: 6px 12px; border-radius: 14px; max-width: 85%; word-wrap: break-word; font-size: 14px; line-height: 1.4; }
+  .chat-message.user { background: #2e7d32; color: #fff; align-self: flex-end; }
+  .chat-message.ai { background: #e8f0ea; color: #1a3a2a; align-self: flex-start; }
+  .ai-input-wrap {
+    display: flex; gap: 8px; background: #fff; border-radius: 30px;
+    padding: 4px 4px 4px 16px; border: 1px solid #d0e0d8;
+  }
+  .ai-input-wrap input { flex: 1; border: none; outline: none; font-size: 14px; padding: 8px 0; background: transparent; color: #1a3a2a; }
+  .ai-input-wrap button { background: #2e7d32; border: none; border-radius: 30px; padding: 8px 20px; color: #fff; font-weight: 600; cursor: pointer; }
+  .ai-input-wrap button:hover { background: #1b5e20; }
+  .q-bubbles { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .q-bubble { background: #fff; border: 1px solid #d0e0d8; border-radius: 30px; padding: 4px 14px; font-size: 13px; cursor: pointer; color: #1e4a2a; }
+  .q-bubble:hover { background: #dce8e0; }
+  .advice-card, .value-card { background: #fff; border-radius: 16px; padding: 14px 16px; border-left: 4px solid #2e7d32; }
+  .value-card { border-left-color: #f9a825; }
+  .card-title { font-size: 13px; color: #5a7a6a; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+  .card-title i { color: #2e7d32; }
+  .value-card .card-title i { color: #f9a825; }
+  .card-refresh { margin-left: auto; background: none; border: none; color: #2e7d32; cursor: pointer; font-size: 13px; }
+  .card-text { color: #1a3a2a; font-size: 14px; line-height: 1.5; margin-top: 4px; }
+  .dpad {
+    display: grid;
+    grid-template-columns: repeat(3, 46px);
+    grid-template-rows: repeat(3, 46px);
+    gap: 6px;
+    justify-content: start;
+  }
+  .dkey {
+    background: #e8f0ea;
+    color: #1e4a2a;
+    border: 1px solid #b8dfc0;
+    border-radius: 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .dkey:not(:disabled):hover { background: #2e7d32; color: #fff; border-color: #2e7d32; }
+  .dkey:not(:disabled):active { background: #1b5e20; color: #fff; }
+  .dkey:disabled { background: #e8ece8; color: #a8b8a8; border-color: #d8e0d8; cursor: not-allowed; }
+  .d-up { grid-area: 1 / 2 / 2 / 3; }
+  .d-left { grid-area: 2 / 1 / 3 / 2; }
+  .d-center {
+    grid-area: 2 / 2 / 3 / 3;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 0;
+  }
+  .d-center .dkey {
+    flex: 1 1 0;
+    min-height: 0;
+    padding: 0;
+    line-height: 1;
+  }
+  .d-right { grid-area: 2 / 3 / 3 / 4; }
+  .d-down { grid-area: 3 / 2 / 4 / 3; }
+  .list-item {
+    background: #f5faf7;
+    border-radius: 16px;
+    padding: 10px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid #e0ece4;
+  }
+  .li-name { color: #2a5a3a; font-size: 14px; font-weight: 500; }
+  .li-value {
+    color: #1e4a2a;
+    font-size: 18px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .li-value.warn { color: #e65100; }
+  .li-value.danger { color: #c62828; }
+  .li-unit {
+    color: #6a8a7a;
+    font-size: 13px;
+    font-weight: 400;
+    margin-left: 4px;
+  }
+  .disease-btn {
+    background: #e8f0ea; border: 1px solid #b8dfc0; color: #1e4a2a;
+    border-radius: 30px; padding: 2px 10px; font-size: 12px;
+    cursor: pointer; margin-left: 6px;
+  }
+  .disease-btn:hover { background: #d0e4d8; }
+  /* 病害详情弹窗 */
+  .modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,.3); backdrop-filter: blur(4px);
+    display: none; align-items: center; justify-content: center; z-index: 999;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal-box {
+    background: #fff; border-radius: 28px; padding: 28px 36px;
+    max-width: 400px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,.15);
+  }
+  .modal-box h3 { color: #1e4a2a; margin-bottom: 16px; font-size: 18px; }
+  .modal-box h3 i { color: #c62828; margin-right: 8px; }
+  .disease-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+  .disease-row {
+    display: flex; justify-content: space-between; padding: 8px 14px;
+    background: #f5faf7; border-radius: 12px; font-size: 15px; color: #1e4a2a;
+  }
+  .disease-row .count { font-weight: 600; color: #c62828; }
+  .modal-empty { color: #5a7a6a; text-align: center; padding: 12px; }
+  .modal-box .close-btn {
+    background: #e8f0ea; border: none; padding: 10px 24px; border-radius: 30px;
+    font-weight: 600; color: #1e4a2a; cursor: pointer; width: 100%;
+  }
+  .modal-box .close-btn:hover { background: #d0e4d8; }
+  .status {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    color: #fff;
+    background: rgba(0,0,0,.5);
+    backdrop-filter: blur(4px);
+  }
+  .status.recording { background: rgba(220,53,69,.85); }
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .toolbar button {
+    padding: 7px 12px;
+    font-size: 13px;
+  }
+  .status-row {
+    display: flex; gap: 10px; font-size: 13px; color: #3a5a4a;
+    padding: 2px 2px;
+    justify-content: flex-end;
+  }
+  .status-row span { display: inline-flex; align-items: center; gap: 6px; }
+  .sdot { width: 10px; height: 10px; border-radius: 50%; background: #c8d8cc; display: inline-block; }
+  .sdot.on { background: #2e7d32; }
+  .water-warning {
+    display: none; align-items: center; gap: 8px;
+    background: #fff3e0; border: 1px solid #ffcc80; border-radius: 12px;
+    padding: 8px 14px; color: #e65100; font-size: 14px;
+  }
+  .water-warning.show { display: flex; }
+  .last-action { font-size: 13px; color: #6a8a7a; padding: 2px 2px; }
+  button {
+    background: #2e7d32;
+    color: #fff;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 40px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background .15s;
+    font-weight: 500;
+  }
+  button:hover { background: #1b5e20; }
+  button:disabled { background: #c8d8cc; color: #8aaa8a; cursor: not-allowed; }
+  button.danger { background: #c62828; }
+  button.danger:hover { background: #b71c1c; }
+  .info {
+    font-size: 12px;
+    color: #5a7a6a;
+  }
+  .error {
+    color: #c62828;
+    font-size: 13px;
+    min-height: 18px;
+  }
+  select {
+    padding: 6px 12px;
+    background: #e8f0ea;
+    color: #1e4a2a;
+    border: 1px solid #b8dfc0;
+    border-radius: 40px;
+    font-size: 13px;
+  }
+  @media (max-width: 980px) {
+    .app-shell { padding: 12px; }
+    .workspace {
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .sidebar {
+      width: 100%;
+      flex-direction: row;
+      flex-wrap: wrap;
+      overflow: visible;
+    }
+    .sidebar .canvas-chart-panel,
+    .sidebar .canvas-list {
+      flex: 1 1 320px;
+    }
+    .main-panel {
+      overflow: visible;
+    }
+    .canvas-ai { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="page-header">
+      <div class="canvas canvas-title">
+        <div class="title-bar">
+          <h1><i class="fas fa-apple-alt"></i> 苹农智眼</h1>
+          <div class="topbar-status">
+            <span class="clock" id="clock">--:--:--</span>
+            <span class="backend-status"><span class="dot" id="backendDot"></span><span id="backendLabel">连接中</span></span>
+            <button class="mode-btn" id="btn1">自动模式</button>
+            <span class="alert-bell" id="alertBell"><i class="fas fa-bell"></i> <span id="alertText">告警</span></span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar">
+        <div class="canvas canvas-list">
+          <div class="list-item"><span class="li-name"><i class="fas fa-seedling"></i> 土壤湿度</span><span class="li-num"><span class="li-value" id="lv0">--</span><span class="li-unit">%</span></span></div>
+          <div class="list-item"><span class="li-name"><i class="fas fa-tint"></i> 水箱水位</span><span class="li-num"><span class="li-value" id="lv1">--</span><span class="li-unit">%</span></span></div>
+          <div class="list-item"><span class="li-name"><i class="fas fa-apple-alt"></i> 结果数量</span><span class="li-num"><span class="li-value" id="lv2">--</span><span class="li-unit">个</span></span></div>
+          <div class="list-item"><span class="li-name"><i class="fas fa-water"></i> 今日浇水量</span><span class="li-num"><span class="li-value" id="lv3">--</span><span class="li-unit">mL</span></span></div>
+          <div class="list-item"><span class="li-name"><i class="fas fa-shower"></i> 本次浇水量</span><span class="li-num"><span class="li-value" id="lv4">--</span><span class="li-unit">mL</span></span></div>
+          <div class="list-item"><span class="li-name"><i class="fas fa-bug"></i> 病害数量</span><span class="li-num"><span class="li-value" id="lv5">--</span><span class="li-unit">处</span><button class="disease-btn" id="diseaseBtn" title="查看详情"><i class="fas fa-list-ul"></i></button></span></div>
+        </div>
+
+        <div class="canvas canvas-chart-panel">
+          <div class="chart-nav">
+            <button class="chart-arrow" id="chartPrev" title="上一个"><i class="fas fa-chevron-up"></i></button>
+            <span class="chart-title" id="chartTitle">数据1</span>
+            <button class="chart-arrow" id="chartNext" title="下一个"><i class="fas fa-chevron-down"></i></button>
+          </div>
+          <div class="chart-viewport" id="chartViewport" tabindex="0">
+            <div class="chart-stack">
+              <div class="chart-card active" data-idx="0">
+                <h3>数据1</h3>
+                <div class="chart-wrap"><canvas id="chart0"></canvas></div>
+              </div>
+              <div class="chart-card" data-idx="1">
+                <h3>数据2</h3>
+                <div class="chart-wrap"><canvas id="chart1"></canvas></div>
+              </div>
+              <div class="chart-card" data-idx="2">
+                <h3>数据3</h3>
+                <div class="chart-wrap"><canvas id="chart2"></canvas></div>
+              </div>
+            </div>
+          </div>
+          <div class="chart-indicators" id="chartIndicators">
+            <span class="ci active" data-i="0"></span>
+            <span class="ci" data-i="1"></span>
+            <span class="ci" data-i="2"></span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <div class="main-scroll">
+          <div class="canvas canvas-toolbar">
+            <div class="status-row">
+              <span><span class="sdot" id="dotWater"></span>浇水</span>
+              <span><span class="sdot" id="dotHarvest"></span>采摘</span>
+              <span><span class="sdot" id="dotGrip"></span>夹爪</span>
+            </div>
+            <div class="toolbar">
+              <button id="btn2">停止浇水</button>
+              <button id="btnGrip">张开夹爪</button>
+              <button id="btnHarvest">开始自动采摘</button>
+            </div>
+            <div class="water-warning" id="waterWarning"><i class="fas fa-clock"></i> 浇水已持续超过 30 秒，请检查！</div>
+            <div class="last-action" id="lastAction">上次操作: 无</div>
+            <div class="error" id="error"></div>
+            <div class="info" id="info"></div>
+          </div>
+
+          <div class="canvas canvas-stage">
+            <div class="stage">
+              <video id="video" autoplay playsinline muted></video>
+              <div class="status" id="status">未启动</div>
+              <div class="stage-overlay">
+                <div class="overlay-top-right">
+                  <div class="overlay-chip"><span class="dot" id="overlayDotWater"></span>浇水</div>
+                  <div class="overlay-chip"><span class="dot" id="overlayDotHarvest"></span>采摘</div>
+                  <div class="overlay-chip"><span class="dot" id="overlayDotGrip"></span>夹爪</div>
+                  <div class="overlay-chip warning" id="overlayLastAction">上次操作: 无</div>
+                </div>
+              </div>
+            </div>
+            <div class="canvas canvas-control">
+              <div class="dpad">
+                <button class="dkey d-up" data-dir="forward">向前</button>
+                <button class="dkey d-left" data-dir="left">向左</button>
+                <div class="d-center">
+                  <button class="dkey" data-dir="up">向上</button>
+                  <button class="dkey" data-dir="down">向下</button>
+                </div>
+                <button class="dkey d-right" data-dir="right">向右</button>
+                <button class="dkey d-down" data-dir="backward">向后</button>
+              </div>
+              <div class="pitch-control">
+                <div class="pitch-label">俯仰</div>
+                <input type="range" id="pitchRange" class="pitch-range" min="-45" max="45" value="0" step="1">
+                <div class="pitch-value"><span id="pitchVal">0</span>°</div>
+              </div>
+            </div>
+            <div class="camctrl-row">
+              <select id="deviceSelect" title="选择摄像头"></select>
+              <button id="startBtn">启动摄像头</button>
+              <button id="stopBtn" class="danger" disabled>停止</button>
+              <button id="snapBtn" disabled>拍照</button>
+            </div>
+          </div>
+
+          <div class="canvas canvas-ai">
+            <div class="ai-left">
+              <div class="ai-title"><i class="fas fa-comment-dots"></i> AI 对话</div>
+              <div class="chat-box" id="chatBox">
+                <div class="chat-message ai">你好！我是果园AI助手，请问有什么可以帮您？</div>
+              </div>
+              <div class="ai-input-wrap">
+                <input type="text" id="aiInput" placeholder="输入您的问题..." />
+                <button id="aiSendBtn"><i class="fas fa-paper-plane"></i> 发送</button>
+              </div>
+              <div class="q-bubbles">
+                <span class="q-bubble" data-q="当前适合浇水吗？">💧 当前适合浇水吗？</span>
+                <span class="q-bubble" data-q="如何预防白粉病？">🛡️ 预防白粉病</span>
+                <span class="q-bubble" data-q="苹果价值如何？">💰 苹果价值</span>
+                <span class="q-bubble" data-q="天气影响？">🌤️ 天气影响</span>
+              </div>
+            </div>
+            <div class="ai-right">
+              <div class="advice-card">
+                <div class="card-title"><i class="fas fa-lightbulb"></i> 今日农事建议 <button class="card-refresh" id="refreshAdvice"><i class="fas fa-sync-alt"></i></button></div>
+                <div class="card-text" id="adviceText">加载中...</div>
+              </div>
+              <div class="value-card">
+                <div class="card-title"><i class="fas fa-coins"></i> 价值分析 <button class="card-refresh" id="refreshValue"><i class="fas fa-sync-alt"></i></button></div>
+                <div class="card-text" id="valueText">加载中...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+<!-- 病害详情弹窗 -->
+<div class="modal-overlay" id="diseaseModal">
+  <div class="modal-box">
+    <h3><i class="fas fa-bug"></i>病害详情</h3>
+    <div class="disease-list" id="diseaseList"></div>
+    <button class="close-btn" id="diseaseClose">关闭</button>
+  </div>
+</div>
+
+<script>
+  // 图表3D轮播脚本
+  const chartCards = Array.from(document.querySelectorAll('.chart-card'));
+  const chartTitle = document.getElementById('chartTitle');
+  const indicators = Array.from(document.querySelectorAll('.chart-indicators .ci'));
+  const prevBtn = document.getElementById('chartPrev');
+  const nextBtn = document.getElementById('chartNext');
+  const viewport = document.getElementById('chartViewport');
+  let activeIndex = 0;
+
+  function activateChart(index, direction) {
+    if (index === activeIndex) return;
+    const prevCard = chartCards[activeIndex];
+    const nextCard = chartCards[index];
+    if (!prevCard || !nextCard) return;
+
+    prevCard.classList.remove('active');
+    prevCard.classList.add(direction === 'down' ? 'exit-up' : 'exit-down');
+    nextCard.classList.remove('exit-up', 'exit-down');
+    nextCard.classList.add('active');
+
+    chartTitle.textContent = `数据${index + 1}`;
+    indicators.forEach((dot, i) => dot.classList.toggle('active', i === index));
+    activeIndex = index;
+
+    window.setTimeout(() => {
+      prevCard.classList.remove('exit-up', 'exit-down');
+    }, 700);
+  }
+
+  function goTo(index, direction) {
+    const safeIndex = (index + chartCards.length) % chartCards.length;
+    activateChart(safeIndex, direction);
+  }
+
+  prevBtn.addEventListener('click', () => goTo(activeIndex - 1, 'up'));
+  nextBtn.addEventListener('click', () => goTo(activeIndex + 1, 'down'));
+  indicators.forEach((dot, i) => {
+    dot.addEventListener('click', () => goTo(i, i > activeIndex ? 'down' : 'up'));
+  });
+
+  viewport.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    if (event.deltaY > 0) {
+      goTo(activeIndex + 1, 'down');
+    } else {
+      goTo(activeIndex - 1, 'up');
+    }
+  }, { passive: false });
+
+  // 同步状态文字到视频右上角悬浮标签
+  const lastActionEl = document.getElementById('lastAction');
+  const overlayLastActionEl = document.getElementById('overlayLastAction');
+  const waterDot = document.getElementById('dotWater');
+  const overlayWaterDot = document.getElementById('overlayDotWater');
+  const harvestDot = document.getElementById('dotHarvest');
+  const overlayHarvestDot = document.getElementById('overlayDotHarvest');
+  const gripDot = document.getElementById('dotGrip');
+  const overlayGripDot = document.getElementById('overlayDotGrip');
+
+  // 监听文字同步（外部脚本更新lastAction时自动同步）
+  const actionObserver = new MutationObserver(()=>{
+    overlayLastActionEl.textContent = lastActionEl.textContent;
+  });
+  actionObserver.observe(lastActionEl,{childList:true,subtree:true});
+
+  // 状态圆点同步
+  const dotObserver = new MutationObserver((records)=>{
+    records.forEach(rec=>{
+      const targetId = rec.target.id;
+      if(targetId === 'dotWater') overlayWaterDot.className = rec.target.className;
+      if(targetId === 'dotHarvest') overlayHarvestDot.className = rec.target.className;
+      if(targetId === 'dotGrip') overlayGripDot.className = rec.target.className;
+    })
+  });
+  dotObserver.observe(waterDot,{attributes:true,attributeFilter:['class']});
+  dotObserver.observe(harvestDot,{attributes:true,attributeFilter:['class']});
+  dotObserver.observe(gripDot,{attributes:true,attributeFilter:['class']});
+</script>
+
+<script src="camera.js"></script>
+<script src="charts.js"></script>
+</body>
+</html>
